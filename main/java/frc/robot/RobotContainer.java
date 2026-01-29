@@ -7,6 +7,7 @@ package frc.robot;
 // import edu.wpi.first.cameraserver.CameraServer;
 // import edu.wpi.first.cscore.UsbCamera;
 import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.Filesystem;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -34,6 +35,8 @@ import com.pathplanner.lib.commands.PathPlannerAuto;
 public class RobotContainer {
 
   private final SendableChooser<Command> autoChooser;
+  private Rotation2d heldHeading = new Rotation2d();
+  private boolean holdHeading = false;
 
   // The robot's subsystems and commands are defined here...
   private final SwerveSubsystem drivebase = new SwerveSubsystem(new File(Filesystem.getDeployDirectory(),
@@ -53,8 +56,8 @@ public class RobotContainer {
   Command driveFieldOrientedDirectAngle = drivebase.driveCommand(
       () -> MathUtil.applyDeadband(-driverOne.getLeftY(), OperatorConstants.LEFT_Y_DEADBAND), // <<<===== CHANGED from -
       () -> MathUtil.applyDeadband(-driverOne.getLeftX(), OperatorConstants.LEFT_X_DEADBAND), // <<<===== CHANGED from -
-      () -> -driverOne.getRightX(), // <<<===== CHANGED from -
-      () -> -driverOne.getRightY()); // <<<===== CHANGED from -
+      this::getHeadingX,
+      this::getHeadingY);
 
   // Applies deadbands and inverts controls because joysticks
   // are back-right positive while robot
@@ -77,6 +80,7 @@ public class RobotContainer {
   public RobotContainer() {
 
     //startUSBCamera();  // Enable USB Camera for dashboard
+    heldHeading = drivebase.getHeading();
 
     // Configure the trigger bindings
     configureBindings();
@@ -125,11 +129,12 @@ public class RobotContainer {
     // Zero the gyro when driverOne presses A
     driverOne.a().onTrue(drivebase.runOnce(drivebase::zeroGyro));
 
-    driverOne.leftTrigger(0.5)
-             .whileTrue(drivebase.driveFieldOrientedWithLimelight(
-                 () -> MathUtil.applyDeadband(-driverOne.getLeftY(), OperatorConstants.LEFT_Y_DEADBAND),
-                 () -> MathUtil.applyDeadband(-driverOne.getLeftX(), OperatorConstants.LEFT_X_DEADBAND),
-                 VisionConstants.LIMELIGHT_NAME));
+    Trigger autoAimTrigger = driverOne.leftTrigger(0.5);
+    autoAimTrigger.whileTrue(drivebase.driveFieldOrientedWithLimelight(
+        () -> MathUtil.applyDeadband(-driverOne.getLeftY(), OperatorConstants.LEFT_Y_DEADBAND),
+        () -> MathUtil.applyDeadband(-driverOne.getLeftX(), OperatorConstants.LEFT_X_DEADBAND),
+        VisionConstants.LIMELIGHT_NAME));
+    autoAimTrigger.onFalse(drivebase.runOnce(this::holdCurrentHeading));
 
 
 
@@ -159,6 +164,38 @@ public class RobotContainer {
   public void setMotorBrake(boolean brake)
   {
     drivebase.setMotorBrake(brake);
+  }
+
+  private void holdCurrentHeading()
+  {
+    heldHeading = drivebase.getHeading();
+    holdHeading = true;
+  }
+
+  private double getHeadingX()
+  {
+    double headingX = -driverOne.getRightX();
+    double headingY = -driverOne.getRightY();
+    if (Math.hypot(headingX, headingY) > OperatorConstants.RIGHT_X_DEADBAND)
+    {
+      holdHeading = false;
+      heldHeading = new Rotation2d(Math.atan2(headingY, headingX));
+      return headingX;
+    }
+    return holdHeading ? heldHeading.getCos() : 0.0;
+  }
+
+  private double getHeadingY()
+  {
+    double headingX = -driverOne.getRightX();
+    double headingY = -driverOne.getRightY();
+    if (Math.hypot(headingX, headingY) > OperatorConstants.RIGHT_X_DEADBAND)
+    {
+      holdHeading = false;
+      heldHeading = new Rotation2d(Math.atan2(headingY, headingX));
+      return headingY;
+    }
+    return holdHeading ? heldHeading.getSin() : 0.0;
   }
 
 }
